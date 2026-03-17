@@ -1,0 +1,239 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        Int      @id @default(autoincrement())
+  name      String
+  email     String   @unique
+  password  String
+  role      Role
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  practices     Practice[]
+  nrcAsignados  Nrc[]                   @relation("DocenteNrc")
+  notifications Notification[]
+  statusChanges PracticeStatusHistory[]
+
+  uploadedDocuments PracticeDocument[]   @relation("UserUploadedDocuments")
+  reviews           PracticeEvaluation[] @relation("UserReviews")
+  enrollments       Enrollment[]
+}
+
+model Period {
+  id        Int      @id @default(autoincrement())
+  name      String
+  startDate DateTime
+  endDate   DateTime
+  active    Boolean  @default(true)
+
+  nrcs       Nrc[]
+  Enrollment Enrollment[]
+}
+
+model Nrc {
+  id           Int          @id @default(autoincrement())
+  code         String
+  practiceType PracticeType
+  active       Boolean      @default(true)
+
+  period   Period @relation(fields: [periodId], references: [id])
+  periodId Int
+
+  docente   User @relation("DocenteNrc", fields: [docenteId], references: [id])
+  docenteId Int
+
+  practices   Practice[]
+  enrollments Enrollment[]
+}
+
+model Practice {
+  id        Int            @id @default(autoincrement())
+  studentId Int
+  nrcId     Int
+  status    PracticeStatus
+
+  startDocStatus StartDocStatus @default(SUBIDO_POR_ESTUDIANTE)
+  startDocNotes  String? // observaciones secretaría (si aplica)
+
+  empresaNombre    String?
+  empresaRut       String?
+  empresaGiro      String?
+  empresaDireccion String?
+  empresaComuna    String?
+  empresaCiudad    String?
+  empresaRegion    String?
+  empresaTelefono  String?
+  empresaEmail     String?
+
+  supervisorNombre     String?
+  supervisorCargo      String?
+  supervisorEmail      String?
+  supervisorFono       String?
+  supervisorCarta      String?
+  supervisorCartaEmail String?
+  supervisorCartaFono  String?
+
+  fechaInicio DateTime?
+  fechaFin    DateTime?
+
+  documentoInicio String?
+  ocrProcessed    Boolean @default(false)
+  ocrError        String?
+
+  documentoExtension String?
+
+  student User @relation(fields: [studentId], references: [id])
+  nrc     Nrc  @relation(fields: [nrcId], references: [id])
+
+  statusHistory PracticeStatusHistory[]
+  extensions    PracticeExtension[]
+
+  documents   PracticeDocument[]
+  evaluations PracticeEvaluation[]
+}
+
+model PracticeExtension {
+  id          Int      @id @default(autoincrement())
+  practiceId  Int
+  fechaInicio DateTime
+  fechaFin    DateTime
+  documento   String?
+  approved    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  practice Practice @relation(fields: [practiceId], references: [id])
+}
+
+model Notification {
+  id         Int      @id @default(autoincrement())
+  userId     Int
+  title      String
+  message    String
+  type       String
+  practiceId Int?
+  read       Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+}
+
+enum PracticeStatus {
+  BORRADOR
+  PROCESSING_DOCUMENT
+  BORRADOR_AUTO_COMPLETADO
+  PENDIENTE_SOLICITUD
+  RECHAZADA
+  APROBADA
+  EN_DESARROLLO
+  EXTENSION_SOLICITADA
+  FINALIZADA
+  CANCELADA
+}
+
+model PracticeStatusHistory {
+  id             Int      @id @default(autoincrement())
+  practiceId     Int
+  previousStatus String
+  newStatus      String
+  changedById    Int
+  createdAt      DateTime @default(now())
+
+  practice  Practice @relation(fields: [practiceId], references: [id])
+  changedBy User     @relation(fields: [changedById], references: [id])
+}
+
+enum Role {
+  ADMIN
+  DOCENTE
+  ESTUDIANTE
+  DIRECTOR
+}
+
+enum PracticeType {
+  I
+  II
+}
+
+enum PracticeDocumentType {
+  INICIO_PDF
+  INICIO_FIRMADO_PDF
+  INFORME_100H_WORD
+  INFORME_FINAL_WORD
+  EXTENSION_PDF
+}
+
+model PracticeDocument {
+  id         Int                  @id @default(autoincrement())
+  practiceId Int
+  type       PracticeDocumentType
+  filePath   String
+  fileName   String
+  mimeType   String
+  uploadedBy Int
+  createdAt  DateTime             @default(now())
+
+  practice Practice @relation(fields: [practiceId], references: [id])
+  uploader User     @relation("UserUploadedDocuments", fields: [uploadedBy], references: [id])
+
+  @@index([practiceId, type])
+}
+
+enum StartDocStatus {
+  SUBIDO_POR_ESTUDIANTE
+  EN_REVISION_SECRETARIA
+  OBSERVADO_SECRETARIA
+  VALIDADO_SECRETARIA
+  EN_FIRMA_DIRECTOR
+  FIRMADO_DIRECTOR
+  PUBLICADO_POR_SECRETARIA
+}
+
+enum EvaluationType {
+  HORAS_100
+  FINAL
+}
+
+enum EvaluationStatus {
+  PENDIENTE
+  OBSERVADO
+  EVALUADO
+}
+
+model PracticeEvaluation {
+  id           Int              @id @default(autoincrement())
+  practiceId   Int
+  type         EvaluationType
+  status       EvaluationStatus @default(PENDIENTE)
+  grade        Float?
+  observations String?
+  reviewedById Int?
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  practice   Practice @relation(fields: [practiceId], references: [id])
+  reviewedBy User?    @relation("UserReviews", fields: [reviewedById], references: [id])
+
+  @@unique([practiceId, type])
+}
+
+model Enrollment {
+  id                  Int      @id @default(autoincrement())
+  periodId            Int
+  nrcId               Int
+  studentId           Int
+  formativesDelivered Boolean  @default(false)
+  createdAt           DateTime @default(now())
+
+  period  Period @relation(fields: [periodId], references: [id])
+  nrc     Nrc    @relation(fields: [nrcId], references: [id])
+  student User   @relation(fields: [studentId], references: [id])
+
+  @@unique([periodId, nrcId, studentId])
+}
