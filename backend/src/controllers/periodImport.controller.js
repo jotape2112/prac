@@ -5,24 +5,38 @@ const bcrypt = require("bcryptjs");
 const normalizeEmail = (v) => String(v || "").trim().toLowerCase();
 const normalizeNrc = (v) => String(v || "").trim();
 
+// ✅ Normaliza headers: quita tildes, espacios duplicados, etc.
+const normHeader = (v) =>
+  String(v || "")
+    .trim()
+    .toUpperCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "") // quita tildes
+    .replace(/\s+/g, " "); // colapsa espacios
+
+let defaultPasswordHash = null; // ✅ para que upsertStudent/upsertDocente lo puedan usar
+
 /**
  * Detecta una fila de encabezados dentro de las primeras N filas.
- * Retorna { headerRow, colMap } donde colMap es { HEADER: colNumber }
+ * Retorna { headerRow, colMap } donde colMap es { HEADER_NORMALIZADO: colNumber }
+ *
+ * - Hace matching por normalización (tildes, espacios)
+ * - Requiere al menos 2 headers (o 1 si expectedHeaders = 1)
  */
 function findHeaderRowAndMap(worksheet, expectedHeaders, scanRows = 25) {
+  const expectedNorm = expectedHeaders.map(normHeader);
+
   for (let r = 1; r <= scanRows; r++) {
     const row = worksheet.getRow(r);
     const map = {};
 
     row.eachCell((cell, colNumber) => {
-      const key = String(cell.text || cell.value || "")
-        .trim()
-        .toUpperCase();
+      const key = normHeader(cell.text || cell.value || "");
       if (key) map[key] = colNumber;
     });
 
-    const hits = expectedHeaders.filter((h) => map[h]).length;
-    const minHits = Math.min(2, expectedHeaders.length); 
+    const hits = expectedNorm.filter((h) => map[h]).length;
+    const minHits = Math.min(2, expectedNorm.length); // si expected=1 -> minHits=1
     if (hits >= minHits) return { headerRow: r, colMap: map };
   }
   return null;
@@ -31,11 +45,11 @@ function findHeaderRowAndMap(worksheet, expectedHeaders, scanRows = 25) {
 function sheetToPracticeType(sheetName) {
   if (sheetName === "TODOS PI" || sheetName === "TODOS PI-FORMATIVAS") return "I";
   if (sheetName === "TODOS PII" || sheetName === "TODOS PII-FORMATIVAS") return "II";
-  // fallback
   return sheetName.includes("PII") ? "II" : "I";
 }
 
-async function upsertStudent(email, name) {
+// ✅ ahora recibe rut y lo guarda en User.rut
+async function upsertStudent(email, name, rut) {
   const existing = await prisma.user.findUnique({
     where: { email },
     select: { id: true },
@@ -45,12 +59,14 @@ async function upsertStudent(email, name) {
     where: { email },
     update: {
       name: name || undefined,
+      rut: rut || undefined, // ✅ si viene, actualiza
       role: "ESTUDIANTE",
       active: true,
     },
     create: {
       name: name || email,
       email,
+      rut: rut || null, // ✅
       password: defaultPasswordHash,
       role: "ESTUDIANTE",
       active: true,
@@ -89,42 +105,10 @@ async function upsertDocente(email, name) {
   return { user, existed: Boolean(existing) };
 }
 
-async function findOrCreateNrc({ periodId, code, practiceType, docenteId, report }) {
-  const existing = await prisma.nrc.findFirst({
-    where: { periodId, code, practiceType },
-    select: { id: true, docenteId: true },
-  });
-
-  if (existing) {
-    // Si viene docente, actualizamos docenteId (cátedra)
-    if (docenteId && existing.docenteId !== docenteId) {
-      await prisma.nrc.update({
-        where: { id: existing.id },
-        data: { docenteId },
-      });
-    }
-    report.updatedNrcs++;
-    return { id: existing.id, existed: true, prevDocenteId: existing.docenteId };
-  }
-
-  const created = await prisma.nrc.create({
-    data: {
-      periodId,
-      code,
-      practiceType,
-      docenteId: docenteId || 1, // ⚠️ si no hay docenteId, esto fallará. Mejor manejarlo abajo.
-      active: true,
-    },
-    select: { id: true },
-  });
-
-  report.createdNrcs++;
-  return { id: created.id, existed: false, prevDocenteId: null };
-}
-
 const importPeriodExcel = async (req, res) => {
   const periodId = Number(req.params.periodId);
-  const defaultPasswordHash = await bcrypt.hash("123456", 10);
+  defaultPasswordHash = await bcrypt.hash("123456", 10);
+
   if (!periodId) return res.status(400).json({ error: "periodId inválido" });
   if (!req.file) return res.status(400).json({ error: "Archivo .xlsx requerido (field: file)" });
 
@@ -141,14 +125,12 @@ const importPeriodExcel = async (req, res) => {
   };
 
   try {
-    // Validar que el periodo existe
     const period = await prisma.period.findUnique({
       where: { id: periodId },
       select: { id: true, name: true },
     });
     if (!period) return res.status(404).json({ error: "Periodo no encontrado" });
 
-    // 1) Cargar workbook
     const workbook = new ExcelJS.Workbook();
     await workbook.xlsx.readFile(req.file.path);
 
@@ -158,12 +140,13 @@ const importPeriodExcel = async (req, res) => {
       return res.status(400).json({ error: 'No se encontró la hoja "202520"' });
     }
 
-    const officialHeader = findHeaderRowAndMap(wsOfficial, ["NRC"], 50);
-    if (!officialHeader || !officialHeader.colMap["NRC"]) {
+    // ✅ aumentamos scanRows por si el header está más abajo
+    const officialHeader = findHeaderRowAndMap(wsOfficial, ["NRC"], 120);
+    if (!officialHeader || !officialHeader.colMap[normHeader("NRC")]) {
       return res.status(400).json({ error: 'No se encontró columna "NRC" en hoja 202520' });
     }
 
-    const officialNrcCol = officialHeader.colMap["NRC"];
+    const officialNrcCol = officialHeader.colMap[normHeader("NRC")];
     const officialNrcSet = new Set();
 
     for (let r = officialHeader.headerRow + 1; r <= wsOfficial.rowCount; r++) {
@@ -174,9 +157,11 @@ const importPeriodExcel = async (req, res) => {
 
     // 3) Procesar TODOS PI / TODOS PII
     const sheetsTodos = ["TODOS PI", "TODOS PII"];
-    const expectedTodos = ["NRC", "CORREO ELECTRÓNICO", "NOMBRE", "CORREO DOCENTE", "DOCENTE"];
 
-    const seenDocenteByNrc = new Map(); // key: `${practiceType}:${nrc}` -> docenteEmail
+    // ✅ agregamos RUT y normalizamos CORREO ELECTRONICO con o sin tilde
+    const expectedTodos = ["NRC", "CORREO ELECTRONICO", "NOMBRE", "RUT", "CORREO DOCENTE", "DOCENTE"];
+
+    const seenDocenteByNrc = new Map();
 
     for (const sheetName of sheetsTodos) {
       const ws = workbook.getWorksheet(sheetName);
@@ -185,7 +170,8 @@ const importPeriodExcel = async (req, res) => {
         continue;
       }
 
-      const header = findHeaderRowAndMap(ws, expectedTodos, 30);
+      // ✅ escaneamos más filas por el encabezado institucional arriba
+      const header = findHeaderRowAndMap(ws, expectedTodos, 120);
       if (!header) {
         report.errors.push({ sheet: sheetName, row: null, reason: "No se detectaron encabezados esperados" });
         continue;
@@ -194,39 +180,55 @@ const importPeriodExcel = async (req, res) => {
       const col = header.colMap;
       const practiceType = sheetToPracticeType(sheetName);
 
+      const NRC = col[normHeader("NRC")];
+      const EMAIL = col[normHeader("CORREO ELECTRONICO")] || col[normHeader("CORREO ELECTRÓNICO")];
+      const NOMBRE = col[normHeader("NOMBRE")];
+      const RUT = col[normHeader("RUT")];
+      const CORREO_DOCENTE = col[normHeader("CORREO DOCENTE")];
+      const DOCENTE = col[normHeader("DOCENTE")];
+
       for (let r = header.headerRow + 1; r <= ws.rowCount; r++) {
         const row = ws.getRow(r);
 
-        const nrcCode = normalizeNrc(row.getCell(col["NRC"]).text || row.getCell(col["NRC"]).value);
-        const studentEmail = normalizeEmail(row.getCell(col["CORREO ELECTRÓNICO"]).text || row.getCell(col["CORREO ELECTRÓNICO"]).value);
-        const studentName = String(row.getCell(col["NOMBRE"]).text || row.getCell(col["NOMBRE"]).value || "").trim();
+        const nrcCode = normalizeNrc(row.getCell(NRC).text || row.getCell(NRC).value);
+        const studentEmail = normalizeEmail(row.getCell(EMAIL).text || row.getCell(EMAIL).value);
+        const studentName = String(row.getCell(NOMBRE).text || row.getCell(NOMBRE).value || "").trim();
+        const studentRut = RUT ? String(row.getCell(RUT).text || row.getCell(RUT).value || "").trim() : "";
 
-        const docenteEmail = col["CORREO DOCENTE"]
-          ? normalizeEmail(row.getCell(col["CORREO DOCENTE"]).text || row.getCell(col["CORREO DOCENTE"]).value)
+        const docenteEmail = CORREO_DOCENTE
+          ? normalizeEmail(row.getCell(CORREO_DOCENTE).text || row.getCell(CORREO_DOCENTE).value)
           : "";
-        const docenteName = col["DOCENTE"]
-          ? String(row.getCell(col["DOCENTE"]).text || row.getCell(col["DOCENTE"]).value || "").trim()
+        const docenteName = DOCENTE
+          ? String(row.getCell(DOCENTE).text || row.getCell(DOCENTE).value || "").trim()
           : "";
 
-        if (!nrcCode || !studentEmail) continue;
+        // fin de tabla
+        if (!nrcCode && !studentEmail && !studentName && !studentRut) continue;
 
-        // NRC oficial?
+        // filas basura arriba/abajo
+        if (!nrcCode || !studentEmail || !studentEmail.includes("@")) continue;
+
         if (!officialNrcSet.has(nrcCode) && !report.nonOfficialNrcs.includes(nrcCode)) {
           report.nonOfficialNrcs.push(nrcCode);
         }
 
-        // Upsert estudiante
-        const { user: student, existed: studentExisted } = await upsertStudent(studentEmail, studentName);
-        if (studentExisted) report.updatedUsers++; else report.createdUsers++;
+        // ✅ upsert estudiante con RUT
+        const { user: student, existed: studentExisted } = await upsertStudent(
+          studentEmail,
+          studentName,
+          studentRut
+        );
+        if (studentExisted) report.updatedUsers++;
+        else report.createdUsers++;
 
-        // Upsert docente cátedra (si viene email)
+        // docente cátedra (si viene)
         const { user: docente, existed: docenteExisted } = await upsertDocente(docenteEmail, docenteName);
-        if (docente && (docenteExisted ? true : false)) {
-          if (docenteExisted) report.updatedUsers++; else report.createdUsers++;
+        if (docente) {
+          if (docenteExisted) report.updatedUsers++;
+          else report.createdUsers++;
         }
 
         if (!docente) {
-          // Si no hay docente, no podemos crear NRC porque docenteId es requerido en tu schema.
           report.errors.push({
             sheet: sheetName,
             row: r,
@@ -235,7 +237,6 @@ const importPeriodExcel = async (req, res) => {
           continue;
         }
 
-        // Find/Create NRC (periodId + code + practiceType)
         const existingNrc = await prisma.nrc.findFirst({
           where: { periodId, code: nrcCode, practiceType },
           select: { id: true, docenteId: true },
@@ -246,7 +247,6 @@ const importPeriodExcel = async (req, res) => {
           nrcId = existingNrc.id;
           report.updatedNrcs++;
 
-          // Conflictos de docente en el mismo NRC
           const key = `${practiceType}:${nrcCode}`;
           const prevEmail = seenDocenteByNrc.get(key);
           if (prevEmail && prevEmail !== docenteEmail) {
@@ -262,7 +262,6 @@ const importPeriodExcel = async (req, res) => {
             seenDocenteByNrc.set(key, docenteEmail);
           }
 
-          // Actualiza docenteId si cambió
           if (docente && existingNrc.docenteId !== docente.id) {
             await prisma.nrc.update({
               where: { id: existingNrc.id },
@@ -287,7 +286,6 @@ const importPeriodExcel = async (req, res) => {
           if (docenteEmail) seenDocenteByNrc.set(key, docenteEmail);
         }
 
-        // Enrollment (periodId, nrcId, studentId) idempotente
         const enrollExists = await prisma.enrollment.findFirst({
           where: { periodId, nrcId, studentId: student.id },
           select: { id: true },
@@ -309,7 +307,7 @@ const importPeriodExcel = async (req, res) => {
 
     // 4) Procesar FORMATIVAS
     const sheetsForm = ["TODOS PI-FORMATIVAS", "TODOS PII-FORMATIVAS"];
-    const expectedForm = ["NRC", "CORREO ELECTRÓNICO", "ENTREGÓ FORMATIVAS"];
+    const expectedForm = ["NRC", "CORREO ELECTRONICO", "ENTREGO FORMATIVAS"];
 
     for (const sheetName of sheetsForm) {
       const ws = workbook.getWorksheet(sheetName);
@@ -318,7 +316,7 @@ const importPeriodExcel = async (req, res) => {
         continue;
       }
 
-      const header = findHeaderRowAndMap(ws, expectedForm, 40);
+      const header = findHeaderRowAndMap(ws, expectedForm, 120);
       if (!header) {
         report.errors.push({ sheet: sheetName, row: null, reason: "No se detectaron encabezados esperados" });
         continue;
@@ -327,12 +325,16 @@ const importPeriodExcel = async (req, res) => {
       const col = header.colMap;
       const practiceType = sheetToPracticeType(sheetName);
 
+      const NRC = col[normHeader("NRC")];
+      const EMAIL = col[normHeader("CORREO ELECTRONICO")] || col[normHeader("CORREO ELECTRÓNICO")];
+      const ENT = col[normHeader("ENTREGO FORMATIVAS")] || col[normHeader("ENTREGÓ FORMATIVAS")];
+
       for (let r = header.headerRow + 1; r <= ws.rowCount; r++) {
         const row = ws.getRow(r);
 
-        const nrcCode = normalizeNrc(row.getCell(col["NRC"]).text || row.getCell(col["NRC"]).value);
-        const studentEmail = normalizeEmail(row.getCell(col["CORREO ELECTRÓNICO"]).text || row.getCell(col["CORREO ELECTRÓNICO"]).value);
-        const entrego = String(row.getCell(col["ENTREGÓ FORMATIVAS"]).text || row.getCell(col["ENTREGÓ FORMATIVAS"]).value || "").trim();
+        const nrcCode = normalizeNrc(row.getCell(NRC).text || row.getCell(NRC).value);
+        const studentEmail = normalizeEmail(row.getCell(EMAIL).text || row.getCell(EMAIL).value);
+        const entrego = String(row.getCell(ENT).text || row.getCell(ENT).value || "").trim();
 
         if (!nrcCode || !studentEmail) continue;
 

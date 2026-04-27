@@ -1,15 +1,22 @@
 const express = require("express");
 const router = express.Router();
-const { verifyToken } = require("../middlewares/auth.middleware");
-const upload = require("../middlewares/upload.middleware");
 
-const { uploadPracticeDocument, listPracticeDocuments } = require("../controllers/documents.controller");
+const { verifyToken, authorizeRoles } = require("../middlewares/auth.middleware");
+const upload = require("../middlewares/documentsUpload.middleware");
+const { listPracticeDocuments, uploadPracticeDocument } = require("../controllers/documents.controller");
 
-router.get("/:practiceId", verifyToken, listPracticeDocuments);
+// listar docs de una práctica
+router.get(
+  "/:practiceId",
+  verifyToken,
+  listPracticeDocuments
+);
 
+// subir doc a una práctica
 router.post(
   "/:practiceId",
   verifyToken,
+  authorizeRoles("ESTUDIANTE", "ADMIN", "DOCENTE", "DIRECTOR"),
   upload.single("file"),
   uploadPracticeDocument
 );

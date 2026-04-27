@@ -28,7 +28,8 @@ export default function Dashboard() {
 
   if (!user) return <div className="p-6">Cargando...</div>;
 
-  const canManage = ["ADMIN", "DOCENTE", "SECRETARIO_ACADEMICO", "DIRECTOR_CARRERA"].includes(user.role);
+  const isAdmin = user.role === "ADMIN";
+  const canManage = ["ADMIN", "DOCENTE", "SECRETARIO_ACADEMICO", "DIRECTOR"].includes(user.role);
 
   return (
     <AppShell title="Dashboard">
@@ -41,15 +42,29 @@ export default function Dashboard() {
               </Button>
             )}
 
+            {user.role === "DOCENTE" && (
+              <Button variant="secondary" onClick={() => navigate("/evaluator")}>
+                Módulo Profesor Evaluador
+              </Button>
+            )}
+
             {canManage && (
               <Button variant="secondary" onClick={() => navigate("/admin")}>
                 Panel Gestión
               </Button>
             )}
-            {["SECRETARIO_ACADEMICO", "ADMIN"].includes(user.role) && (
-              <Button variant="secondary" onClick={() => navigate("/secretary/start-docs")}>
-                Bandeja Secretaría (Inicios)
-              </Button>
+
+            {/* ✅ SOLO ADMIN: Secretaría y Coordinación */}
+            {isAdmin && (
+              <>
+                <Button variant="secondary" onClick={() => navigate("/secretary")}>
+                  Bandeja Secretaría
+                </Button>
+
+                <Button variant="secondary" onClick={() => navigate("/coordination")}>
+                  Bandeja Coordinación
+                </Button>
+              </>
             )}
           </div>
         </Card>

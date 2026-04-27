@@ -8,6 +8,8 @@ import ProtectedRoute from "./components/ProtectedRoute";
 import Notifications from "./pages/Notifications";
 import PracticeDetail from "./pages/PracticeDetail";
 import SecretaryStartDocs from "./pages/SecretaryStartDocs";
+import CoordinationStartDocs from "./pages/CoordinationStartDocs";
+import EvaluatorPanel from "./pages/EvaluatorPanel";
 
 export default function App() {
   return (
@@ -23,20 +25,20 @@ export default function App() {
             </ProtectedRoute>
           }
         />
-        <Route
-          path="/secretary/start-docs"
-          element={
-            <ProtectedRoute allowedRoles={["SECRETARIO_ACADEMICO", "ADMIN"]}>
-              <SecretaryStartDocs />
-            </ProtectedRoute>
-          }
-        />
 
         <Route
           path="/practice"
           element={
             <ProtectedRoute allowedRoles={["ESTUDIANTE"]}>
               <Practice />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/evaluator"
+          element={
+            <ProtectedRoute allowedRoles={["DOCENTE"]}>
+              <EvaluatorPanel />
             </ProtectedRoute>
           }
         />
@@ -49,7 +51,7 @@ export default function App() {
                 "ADMIN",
                 "DOCENTE",
                 "SECRETARIO_ACADEMICO",
-                "DIRECTOR_CARRERA",
+                "DIRECTOR",
               ]}
             >
               <AdminPanel />
@@ -60,8 +62,26 @@ export default function App() {
         <Route
           path="/practices/:practiceId"
           element={
-            <ProtectedRoute allowedRoles={["ADMIN","DOCENTE","SECRETARIO_ACADEMICO","DIRECTOR_CARRERA"]}>
+            <ProtectedRoute allowedRoles={["ADMIN","DOCENTE","SECRETARIO_ACADEMICO","DIRECTOR"]}>
               <PracticeDetail />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/coordination"
+          element={
+            <ProtectedRoute allowedRoles={["ADMIN"]}>
+              <CoordinationStartDocs />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/secretary"
+          element={
+            <ProtectedRoute allowedRoles={["ADMIN"]}>
+              <SecretaryStartDocs />
             </ProtectedRoute>
           }
         />

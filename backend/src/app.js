@@ -14,6 +14,13 @@ const documentsRoutes = require("./routes/documents.routes");
 const evaluationRoutes = require("./routes/evaluation.routes");
 const periodImportRoutes = require("./routes/periodImport.routes");
 const studentRoutes = require("./routes/student.routes");
+const path = require("path");
+const lettersRoutes = require("./routes/letters.routes");
+const evaluatorRoutes = require("./routes/evaluator.routes");
+const usersRoutes = require("./routes/users.routes");
+const secretaryRoutes = require("./routes/secretary.routes");
+const coordinationRoutes = require("./routes/coordination.routes");
+
 
 
 const app = express();
@@ -34,6 +41,13 @@ app.use("/api/evaluations", evaluationRoutes);
 app.use('/uploads', express.static('uploads'));
 app.use("/api/periods", periodImportRoutes);
 app.use("/api/students", studentRoutes);
+app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
+app.use("/api", lettersRoutes);
+app.use("/api/evaluator", evaluatorRoutes);
+app.use("/api/users", usersRoutes);
+app.use("/api/secretary", secretaryRoutes);
+app.use("/api/coordination", coordinationRoutes);
+
 
 
 const authRoutes = require('./routes/auth.routes');

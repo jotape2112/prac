@@ -1,20 +1,13 @@
 const express = require("express");
 const router = express.Router();
 const { verifyToken, authorizeRoles } = require("../middlewares/auth.middleware");
-const { listToSign, markSigned } = require("../controllers/director.controller");
+const { downloadInicioPdfForDirectorSign } = require("../controllers/directorDownload.controller");
 
 router.get(
-  "/to-sign",
+  "/start-docs/:practiceId/for-sign",
   verifyToken,
-  authorizeRoles("DIRECTOR_CARRERA", "ADMIN"),
-  listToSign
-);
-
-router.patch(
-  "/:practiceId/signed",
-  verifyToken,
-  authorizeRoles("DIRECTOR_CARRERA", "ADMIN"),
-  markSigned
+  authorizeRoles("DIRECTOR"),
+  downloadInicioPdfForDirectorSign
 );
 
 module.exports = router;

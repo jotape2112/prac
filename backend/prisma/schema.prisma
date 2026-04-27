@@ -11,6 +11,7 @@ model User {
   id        Int      @id @default(autoincrement())
   name      String
   email     String   @unique
+  rut       String?
   password  String
   role      Role
   active    Boolean  @default(true)
@@ -24,6 +25,8 @@ model User {
   uploadedDocuments PracticeDocument[]   @relation("UserUploadedDocuments")
   reviews           PracticeEvaluation[] @relation("UserReviews")
   enrollments       Enrollment[]
+
+  evaluacionesAsignadas Practice[] @relation("EvaluadorPractices")
 }
 
 model Period {
@@ -56,6 +59,7 @@ model Nrc {
 model Practice {
   id        Int            @id @default(autoincrement())
   studentId Int
+  celular String?
   nrcId     Int
   status    PracticeStatus
 
@@ -66,13 +70,15 @@ model Practice {
   empresaRut       String?
   empresaGiro      String?
   empresaDireccion String?
-  empresaComuna    String?
-  empresaCiudad    String?
+  empresaNumero    String?
+  empresaPais      String?
   empresaRegion    String?
+  empresaCiudad    String?
   empresaTelefono  String?
   empresaEmail     String?
 
   supervisorNombre     String?
+  supervisorApellido   String?
   supervisorCargo      String?
   supervisorEmail      String?
   supervisorFono       String?
@@ -82,6 +88,8 @@ model Practice {
 
   fechaInicio DateTime?
   fechaFin    DateTime?
+
+  funciones String?
 
   documentoInicio String?
   ocrProcessed    Boolean @default(false)
@@ -94,6 +102,12 @@ model Practice {
 
   statusHistory PracticeStatusHistory[]
   extensions    PracticeExtension[]
+
+  evaluadorId Int?
+  evaluador   User? @relation("EvaluadorPractices", fields: [evaluadorId], references: [id])
+
+  funcionesAlumno String?
+  funcionesNotes  String?
 
   documents   PracticeDocument[]
   evaluations PracticeEvaluation[]
@@ -154,6 +168,7 @@ enum Role {
   DOCENTE
   ESTUDIANTE
   DIRECTOR
+  SECRETARIO_ACADEMICO
 }
 
 enum PracticeType {
@@ -164,9 +179,12 @@ enum PracticeType {
 enum PracticeDocumentType {
   INICIO_PDF
   INICIO_FIRMADO_PDF
+  INICIO_FIRMA_ALUMNO_IMG
+  INICIO_EVIDENCIA_EMPRESA
   INFORME_100H_WORD
   INFORME_FINAL_WORD
   EXTENSION_PDF
+  CARTA_EMPRESA_PDF
 }
 
 model PracticeDocument {
@@ -190,6 +208,10 @@ enum StartDocStatus {
   EN_REVISION_SECRETARIA
   OBSERVADO_SECRETARIA
   VALIDADO_SECRETARIA
+  
+  EN_REVISION_COORDINACION
+  OBSERVADO_COORDINACION
+
   EN_FIRMA_DIRECTOR
   FIRMADO_DIRECTOR
   PUBLICADO_POR_SECRETARIA

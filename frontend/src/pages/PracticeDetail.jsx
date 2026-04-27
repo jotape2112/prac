@@ -41,7 +41,7 @@ export default function PracticeDetail() {
   if (!user) return <div className="p-6">Cargando...</div>;
 
   const canReject = ["ADMIN", "DOCENTE", "SECRETARIO_ACADEMICO"].includes(user.role);
-  const canApprove = ["ADMIN", "DIRECTOR_CARRERA"].includes(user.role);
+  const canApprove = ["ADMIN", "DIRECTOR"].includes(user.role);
 
   return (
     <AppShell title={`Detalle #${practiceId}`}>
@@ -81,8 +81,10 @@ export default function PracticeDetail() {
                 <div>{data.empresaEmail || "-"}</div>
               </div>
               <div>
-                <div className="text-slate-500">Supervisor</div>
-                <div>{data.supervisorNombre || "-"}</div>
+                <span className="text-slate-500">Supervisor</span>
+                <div>
+                  {(data.supervisorNombre || "-")}{data.supervisorApellido ? ` ${data.supervisorApellido}` : ""}
+                </div>
               </div>
               <div>
                 <div className="text-slate-500">Supervisor email</div>
